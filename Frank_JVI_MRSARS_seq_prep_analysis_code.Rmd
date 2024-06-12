@@ -1,0 +1,1093 @@
+---
+title: "MrSARS_manuscript_code"
+author: "John Frank"
+date: "2024-05-31"
+output: html_document
+---
+
+*Code used for ACE2 sequence searches and processing*
+**obtain ACE2 peptide sequences**
+```{bash}
+# code to search for ACE2 coding sequences from vertebrates using EDirect
+#	search for and download IDs of vertebrate ACE2 entries with coding sequences
+esearch -db nucleotide -query "ACE2[GENE] AND vertebrates[Organism] AND CDS" | efetch -format uid > ACE2_ortholog_CDS_ids.txt 
+#	download genbank entries for given IDs.
+efetch -db nucleotide -id $(cat ACE2_ortholog_CDS_ids.txt) -format gb > ACE2_ortholog.gb
+#	following code is in python
+#   extract peptide sequences from the genbank annotations and output a peptide fasta file with headers in the following format '>accession_species_name'
+python
+                    
+from Bio import SeqIO
+
+with open("ACE2_ortholog.gb") as input_handle, open("ACE2_ortholog_pep.fasta", "w") as output_handle:
+    for record in SeqIO.parse(input_handle, "genbank"):
+        organism = "unknown_organism"
+        if "organism" in record.annotations:
+            organism = record.annotations["organism"].replace(" ", "_")
+        for feature in record.features:
+            if feature.type == "CDS":
+                if "translation" in feature.qualifiers:
+                    peptide_seq = feature.qualifiers["translation"][0]
+                    header = f"{record.id}_{organism}"
+                    output_handle.write(f">{header}\n{peptide_seq}\n")
+                    
+# Generated the rhinolophus and hipposideros ACE2 accession list based on the report from Frank et al 2022 (https://doi.org/10.1098/rspb.2022.0193). Using this list, the following python script was used to extract ACE2 sequences.
+efetch -input Frank_accessions.txt -db sequences -format gb > ACE2_FRANK_bat.gb
+# extract fasta sequence with 'accession_species_name' header
+python
+                    
+from Bio import SeqIO
+
+with open("ACE2_FRANK_bat.gb") as input_handle, open("ACE2_FRANK_bat_pep.fasta", "w") as output_handle:
+    for record in SeqIO.parse(input_handle, "genbank"):
+        organism = "unknown_organism"
+        if "organism" in record.annotations:
+            organism = record.annotations["organism"].replace(" ", "_")
+        for feature in record.features:
+            if feature.type == "CDS":
+                if "translation" in feature.qualifiers:
+                    peptide_seq = feature.qualifiers["translation"][0]
+                    header = f"{record.id}_{organism}"
+                    output_handle.write(f">{header}\n{peptide_seq}\n")
+
+# extract fasta sequence with 'accession_species_name' header for rhinolophus sequences
+python
+                    
+from Bio import SeqIO
+
+with open("ACE2_rhinolophus_ncbi.gb") as input_handle, open("ACE2_rhinolophus_ncbi_pep.fasta", "w") as output_handle:
+    for record in SeqIO.parse(input_handle, "genbank"):
+        organism = "unknown_organism"
+        if "organism" in record.annotations:
+            organism = record.annotations["organism"].replace(" ", "_")
+        for feature in record.features:
+            if feature.type == "CDS":
+                if "translation" in feature.qualifiers:
+                    peptide_seq = feature.qualifiers["translation"][0]
+                    header = f"{record.id}_{organism}"
+                    output_handle.write(f">{header}\n{peptide_seq}\n")
+```
+
+**edit sequence headers and combine into master fasta file**
+```{bash}
+# edit header to include "accession_species name" for refseq ACE2 sequences.
+sed 's/\.\([^[]*\)\[/_/ ; s/]//g ; s/\ /_/g' ACE2_vert_refseq_protein.fasta > ACE2_vert_refseq_protein_AccSpec.fasta
+# generate text file containing organism names for the ACE2_ortholog fasta file
+#   extract species name from genbank (.gb) file
+grep 'ORGANISM' ACE2_ortholog.gb > ACE2_ortholog_species_name.txt # this yields 'ORGANISM  species_name' text file
+# combine ACE2 peptide files with 'accession_species_name' headers
+cat ACE2_vert_refseq_protein_AccSpec.fasta ACE2_ortholog_pep.fasta ACE2_FRANK_bat_pep.fasta rangifer_tarandus_ACE2/ACE2_rangifer_tarandus_pep.fasta oncorhynchus_mykiss_ACE2/ACE2_oncorhynchus_mykiss_pep.fasta > ACE2_vert_all_pep.fasta
+# remove duplicate sequences and sequences of appropriate length (python): find_remove_fasta_header_seq_dups.py
+# import necessary modules from BioPython and sys
+from Bio import SeqIO
+import sys
+
+# Define a function to remove duplicate sequences based on headers and sequence lengths
+def remove_duplicate_sequences(input_fasta, output_fasta, min_length, max_length, seq_type):
+    # Check if the sequence type is valid, raise an error if not
+    if seq_type not in ["nucleotide", "protein"]:
+        raise ValueError("Invalid sequence type. Please choose 'nucleotide' or 'protein'.")
+
+    # Initialize a dictionary to keep track of seen sequences
+    seen = {}
+    # Initialize a list to store unique records
+    unique_records = []
+
+    # Open the input fasta file for reading
+    with open(input_fasta, "r") as file:
+        # Iterate over each sequence record in the fasta file
+        for record in SeqIO.parse(file, "fasta"):
+            # Get the length of the sequence
+            seq_length = len(record.seq)
+            # Check if the sequence length is within the specified range
+            if min_length <= seq_length <= max_length:
+                # Create a unique identifier for each sequence based on its header and sequence
+                identifier = (record.id, str(record.seq))
+                # If this sequence has not been seen before, add it to the dictionary and list
+                if identifier not in seen:
+                    seen[identifier] = True
+                    unique_records.append(record)
+
+    # Open the output fasta file for writing
+    with open(output_fasta, "w") as output:
+        # Write the unique records to the output file
+        SeqIO.write(unique_records, output, "fasta")
+
+# Check if the script is being run as the main module
+if __name__ == "__main__":
+    # Check if the correct number of command line arguments have been provided
+    if len(sys.argv) != 6:
+        # If not, print the usage information and exit
+        print("Usage: python script.py <input_fasta> <output_fasta> <min_length> <max_length> <seq_type>")
+        sys.exit(1)
+
+    # Get the input fasta file path from command line arguments
+    input_fasta = sys.argv[1]
+    # Get the output fasta file path from command line arguments
+    output_fasta = sys.argv[2]
+    # Get the minimum sequence length from command line arguments and convert it to an integer
+    min_length = int(sys.argv[3])
+    # Get the maximum sequence length from command line arguments and convert it to an integer
+    max_length = int(sys.argv[4])
+    # Get the sequence type from command line arguments and convert it to lower case
+    seq_type = sys.argv[5].lower()
+    # Call the function to remove duplicate sequences
+    remove_duplicate_sequences(input_fasta, output_fasta, min_length, max_length, seq_type)
+    # Print a completion message
+    print(f"Done. Duplicate sequences with duplicate headers removed. {seq_type.capitalize()} sequences shorter than {min_length} or longer than {max_length} bases were filtered out.")
+
+## iterated this script to determine the appropriate length criteria. finally settled on the following range
+python find_remove_fasta_header_seq_dups.py ACE2_vert_all_pep.fasta ACE2_vert_all_pep_noDup_filt.fasta 790 845 protein    
+# after aligning above filtered seqs with MAFFT got a little better alignment; manually removed sequences (jalview) that were distinct from obvious ACE2 sequences. 
+  # repeated this approach again with MAFFT and adjusted settings
+MAFFT --leavegappyregion --thread 5 ACE2_vert_all_pep_noDup_filt_mft_2.fasta > ACE2_vert_all_pep_noDup_filt_mft_3.fasta # wc -l 1231    
+# after alignment manually removed obviously not ACE2 sequences. Realigned again with MUSCLE, which doesn't introduce as many gaps
+muscle -super5 ACE2_vert_all_pep_noDup_filt_mft_4.fasta -output ACE2_vert_all_pep_noDup_filt_mft_4_mscl.fasta
+  # cleaned up the alignment and removed sequences that were obviously off (in jalview). Saved the resulting file as follows.
+/Users/johnfrank/Desktop/Desktop - MacBook Pro/Yale_University/Iwasaki_Research_projects/ACE2_CoV2/ACE2_orthologs_seq/ACE2_vert_all_pep_noDup_filt_mft_4_mscl_clean.fa
+grep '>' ACE2_vert_all_pep_noDup_filt_mft_4_mscl_clean.fa | wc -l
+    1230
+  # need to add rhinolophus sequences which were missing from original master alignment
+    # the rhinolophus sequence file contains a lot of junk. Filtered out only ACE2 sequences before appending rhinolophus sequences to the cleaned, then aligned fasta file. Used find_remove_fasta_header_seq_dups.py to remove sequences that are clearly not ACE2.
+python find_remove_fasta_header_seq_dups.py ACE2_rhinolophus_ncbi_pep.fasta ACE2_rhinolophus_ncbi_pep_filt.fasta 800 810 protein
+    # manually removed non-ACE2 sequences and saved the file as the following through jalview
+grep '>' ACE2_rhinolophus_ncbi_pep_filt_clean.fasta | wc -l       66  
+  # appended bona fide rhinolophus bat ACE2 sequences to the larger alignment 
+cat ACE2_vert_all_pep_noDup_filt_mft_4_mscl_clean_og.fa ACE2_rhinolophus_ncbi_pep_filt_clean.fasta > ACE2_vert_all_pep_noDup_filt_mft_4_mscl_clean.fa 
+    # reran MUSCLE alignment with additional sequences.
+muscle -super5 ACE2_vert_all_pep_noDup_filt_mft_4_mscl_clean.fa -output ACE2_vert_all_pep_noDup_filt_mft_4_mscl_2.fasta
+    # appended white tailed deer sequence to the final sequence alignment:  ACE2_vert_all_pep_noDup_filt_mft_4_mscl_2_clean.fasta
+cat white-tailed-deer_ACE2/ovtACE2_CDS_BLAST_consensus_adj_pep.fasta >> ACE2_vert_all_pep_noDup_filt_mft_4_mscl_2_clean.fasta
+    # added nanorana parkeri to sequence file
+cat nanorana_parkeri_ACE2/nanorana_parkeri_ACE2_CDS_pep.fasta >> ACE2_vert_all_pep_noDup_filt_mft_4_mscl_2_clean.fasta
+    # regenerate alignment after adding relevant species, then manually process alignment. 
+muscle -super5 ACE2_vert_all_pep_noDup_filt_mft_4_mscl_2_clean.fasta -output ACE2_vert_all_pep_noDup_filt_mft_4_mscl_3.fasta
+
+# pull out relevant residues with the following python script: residue_extraction_by_position.py
+import sys
+from Bio import AlignIO
+
+def extract_positions(alignment_file, positions_file, output_file):
+    # Read the positions to be extracted
+    with open(positions_file) as f:
+        positions = [int(line.strip()) - 1 for line in f if line.strip().isdigit()]
+    
+    # Read in the alignment
+    alignment = AlignIO.read(alignment_file, "fasta")
+    
+    # Open the output file
+    with open(output_file, "w") as out:
+        # Loop through each record in the alignment
+        for record in alignment:
+            # Extract the residues at the specified positions
+            extracted_residues = "".join(record.seq[position] for position in positions if position < len(record.seq))
+            # Write the result to the output file
+            out.write(f">{record.id}\n{extracted_residues}\n")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        print("Usage: python script.py alignment.fasta positions.txt output.fasta")
+        sys.exit(1)
+    
+    alignment_file = sys.argv[1]
+    positions_file = sys.argv[2]
+    output_file = sys.argv[3]
+    
+    extract_positions(alignment_file, positions_file, output_file)
+    print("Extraction complete. Results are saved in:", output_file)
+
+python residue_extraction_by_position.py ../ACE2_vert_all_pep_noDup_filt_mft_4_mscl_3_clean.fasta DAMAS_2020_SCVsbr_ResPos.txt DAMASsbr.fasta
+
+# appended Damas Dataset to my Spike Bound Residue alignment 
+  # refine sequence headers to include accession
+    # took original damas sd01 dataset and reformatted scientific species name, residues and accessions into csv file
+    # used sed and manually removed unnecessary _(ncbi_*) annotations and website references that contain special characters
+sed -i '' 's/_(NCBI_protein)// ; s/_(NCBI_gene)// ; s/_(NCBI_assembly)//' pnas_2010146117_sd01_ACE2_sbr_acc.csv 
+  # reformatted csv file into fasta format with python (this code is saved as a text file: csv2fasta_convert.py)
+import csv
+
+input_file = 'pnas_2010146117_sd01_ACE2_sbr_acc.csv'  # Replace with your CSV file path
+output_file = 'pnas_2010146117_sd01_ACE2_sbr_acc.fasta'  # Output file name
+
+with open(input_file, newline='') as csvfile, open(output_file, 'w') as fastafile:
+    reader = csv.reader(csvfile)
+    for row in reader:
+        species_name = row[0]
+        sequence = ''.join(row[1:26])
+        identifier = row[26]
+        fasta_header = f'>{identifier}_{species_name}'
+        fastafile.write(f'{fasta_header}\n{sequence}\n')
+
+print(f'FASTA file created: {output_file}')
+    
+  # appended _Damas2020 to the headers to denote the data source
+sed -i '' '/^>/ s/$/_Damas2020/' pnas_2010146117_sd01_ACE2_sbr_acc.fasta 
+  # append Damas data to my larger dataset
+cat ACE2_CoVspike_bound_residue/DAMASsbr.fasta Damas_2020_seqs/pnas_2010146117_sd01_ACE2_sbr_acc.fasta > ACE2_CoVspike_bound_residue/DAMASsbr_ACE2_complete.fasta
+
+# remove duplicate sequences from the same species with python: filter_unique_species&seq.py 
+import sys
+import re
+from Bio import SeqIO
+
+def main(input_fasta, output_fasta):
+    seen_sequences = {}
+    species_regex = re.compile(r'([A-Z][a-z]+(?:_[a-z]+)+)')
+
+    for record in SeqIO.parse(input_fasta, "fasta"):
+        header = record.description
+        sequence = str(record.seq)
+
+        # Try to extract species name from header using regex
+        species_match = species_regex.search(header)
+        if species_match:
+            species = species_match.group(1)
+        else:
+            print(f"Warning: Unable to extract species from header: {header}")
+            continue
+
+        # Initialize species dictionary if not present
+        if species not in seen_sequences:
+            seen_sequences[species] = {}
+        
+        # Store unique sequences with their original headers
+        if sequence not in seen_sequences[species]:
+            seen_sequences[species][sequence] = record
+
+    # Write retained sequences to output file
+    with open(output_fasta, "w") as output_handle:
+        for species_records in seen_sequences.values():
+            for record in species_records.values():
+                SeqIO.write(record, output_handle, "fasta")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python script.py input.fasta output.fasta")
+        sys.exit(1)
+    
+    input_fasta = sys.argv[1]
+    output_fasta = sys.argv[2]
+    main(input_fasta, output_fasta)
+    print("Process completed. Unique and first instance of duplicate sequences retained.")
+
+python filter_unique_species\&seq.py DAMASsbr_ACE2_complete.fasta DAMASsbr_ACE2_complete_uniq.fasta 
+
+# check number of sequences in final dataset
+grep '>' DAMASsbr_ACE2_complete_uniq.fasta | wc -l
+     830 # note this represents the master file that serves as input for the sequence similarity analysis.
+```
+
+**perform sequence similarity analysis with MrSARS (See MrSARS.py)** 
+```{bash}
+python MrSARS.py <input_seqs.fasta> <ref_list_file.txt> <dir/similarity_scores.csv>
+```
+
+**generate random AS score dataset with MrSARS-sampler (MrSARS-sampler)**
+```{bash}
+python MrSARS_sampler.py <input_seqs.fasta> <ref_list_file.txt> <dir/similarity_scores.csv>
+```
+
+**extract animal order information from ncbi**
+```{bash}
+# used column_splitter1.2.py to pull out animal species names from the initial identifiers saved in the MrSARS output 'MrSARS_ACE2.csv'. 
+import csv
+import re
+import sys
+
+def split_accession_species(s):
+    # Find the pattern of a digit followed by an underscore and a capital letter
+    match = re.search(r'\d_([A-Z])', s)
+    if match:
+        # Split the string at the found index and only keep the part starting from the capital letter
+        index = match.start(1)
+        species_name = s[index:]
+    else:
+        species_name = s
+
+    # Remove '_Damas2020' if present
+    return species_name.replace('_Damas2020', '')
+
+def process_file(input_file, output_file):
+    with open(input_file, 'r') as infile, open(output_file, 'w', newline='') as outfile:
+        reader = csv.reader(infile, delimiter='\t')
+        writer = csv.writer(outfile, delimiter='\t')
+
+        for i, row in enumerate(reader):
+            if i == 0:
+                # For the header row, add a new column title
+                row.append('Species')
+            else:
+                # Split the first column based on the pattern and remove '_Damas2020' if present
+                species_name = split_accession_species(row[0])
+                row.append(species_name)
+            writer.writerow(row)
+    print(f'File has been processed and saved as {output_file}')
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python script_name.py input_file.tsv")
+    else:
+        input_file = sys.argv[1]
+        output_file = 'modified_' + input_file
+        process_file(input_file, output_file)
+
+#python column_splitter_1.2.py MrSARS_ACE2.csv 
+#File has been processed and saved as modified_MrSARS_ACE2.csv
+
+# obtain taxonomic information for my species from ncbi
+  # generate species list
+awk -F'\t' '{print $7}' modified_MrSARS_ACE2.csv > MrSARS_ACE2_species.txt
+(base) MacBook-Pro-8:ACE2_CoVspike_bound_residue johnfrank$ sed -i '' 's/_/ /g' MrSARS_ACE2_species.txt # remove '_' from species name to make sure these are compatible with ncbi.
+  # pull out taxonomic information from ncbi with entrez direct
+#animal_taxonomy_search.sh
+
+#!/bin/bash
+output_file="taxonomy_table.tsv"
+echo -e "Species\tKingdom\tPhylum\tClass\tOrder\tFamily\tGenus" > "$output_file"
+
+# Read file contents into an array
+IFS=$'\n' read -d '' -r -a species_array < "MrSARS_ACE2_species.txt"
+
+counter=0
+
+for species in "${species_array[@]}"; do
+    ((counter++))
+    species=$(echo "$species" | tr -d '\r' | xargs)
+    
+    echo "Processing $counter: $species"
+
+    {
+        tax_data=$(esearch -db taxonomy -query "$species" | \
+                   efetch -format xml | \
+                   xtract -pattern Taxon -element ScientificName -division LineageEx -group Taxon -sep "|" -element Rank,ScientificName)
+
+        kingdom=$(echo "$tax_data" | grep -o 'kingdom|[^|]*' | tail -n 1)
+        phylum=$(echo "$tax_data" | grep -o 'phylum|[^|]*' | tail -n 1)
+        class=$(echo "$tax_data" | grep -o 'class|[^|]*' | tail -n 1)
+        order=$(echo "$tax_data" | grep -o 'order|[^|]*' | tail -n 1)
+        family=$(echo "$tax_data" | grep -o 'family|[^|]*' | tail -n 1)
+        genus=$(echo "$tax_data" | grep -o 'genus|[^|]*' | tail -n 1)
+
+        echo -e "$species\t$kingdom\t$phylum\t$class\t$order\t$family\t$genus" >> "$output_file"
+#       echo -e "$species\t$order\t$family" >> "$output_file"
+    } || {
+        echo "An error occurred with $species"
+    }
+done
+
+echo "Processed $counter species in total."
+
+    # remove junk information included in output.
+sed 's/kingdom|//g ; s/clade\t//g ; s/phylum|//g ; s/subphylum\t//g; s/class|//g; s/clade|//g ; s/family\t//g ; s/order|//g ; s/suborder\t//g ; s/family|//g ; s/subgenus|//g ; s/subgenus//g ; s/genus\t//g ; s/genus|//g ; s/superorder\t//g ; s/super//g ; s/infraclass\t//g ; s/infraorder\t//g ; s/class\t//g ; s/order\t//g ; s/species//g ; s/sub//g ; s/tribe//g ; s/group//g' taxonomy_table.tsv > taxonomy_table_2.tsv 
+
+    # to maintain compatibility with the similarity file need to reintroduce '_' to species
+sed -i '' 's/ /_/' taxonomy_table_2.tsv
+```
+
+
+
+*Packages and functions used for R code*
+```{r}
+library(readxl)
+library(readr)
+library(tidyverse)
+library(viridis)
+library(viridisLite)
+library(reshape2)
+library(ggpp)
+library(ggdendro)
+library(cowplot)
+library(ComplexHeatmap)
+library(circlize)
+library(stringr)
+library(purrr)
+library(ggpubr)
+library(rlang)
+library(magrittr)
+library(ggVennDiagram)
+
+#creates a stacked barplot used for animal organization levels
+StkBarPlt <- function(data, x, y, z) {
+  ggplot(data, aes(x = {{x}}, y = {{y}}, fill = {{z}})) +
+    geom_bar(stat = "identity") +
+    labs(title = NULL, x = "Species", y = "Count") +
+    theme_classic() +
+#    scale_fill_viridis(discrete = TRUE) +
+    theme(legend.position = "right")
+}
+#creates a standard barplot
+barPlt <- function(data, x, y, z) {
+  ggplot(data, aes(x = {{x}}, y = {{y}}, fill = {{z}})) +
+    geom_bar(stat = "identity") +
+    labs(title = NULL, x = "Species", y = "Count") +
+    theme_classic() +
+    theme(axis.text.x = element_text(color = "black", size = 7, angle = 45, hjust = 1),
+      axis.text.y = element_text(color = "black", size = 15),
+      axis.title = element_text(size = 15),
+      legend.text = element_text(face = "bold"),
+      legend.title = element_text(size = 12, face = "bold")) 
+}
+#Creates a histogram of all samples for a single species (from Brenham's sampler_hist.Rmd file)
+spec_plot <- function(spec){
+  mean <- mean(refoutputs[[spec]])
+  sd <- sd(refoutputs[[spec]])
+
+  conf_int <- mean + c(-1.96,1.96) * sd/sqrt(length(refoutputs[[spec]]))
+  
+  plot <- ggplot() + geom_histogram(refoutputs, mapping = aes(x=refoutputs[[spec]]),colour = 1, fill = "white") + geom_vline(mapping = NULL, xintercept = refs[[spec]][1], linetype="solid", color="red", size=1) + geom_ribbon(aes(x = refoutputs[[spec]], ymin = 0, ymax = Inf, 
+                  xmin = conf_int[1], 
+                  xmax = conf_int[2]),fill = "gray", alpha = 0.5) + xlab(spec)
+  return(plot)
+}
+
+# creates heatmap of lit data vs MRRSSA
+complex_heatmap <- function(testdata) {
+    # Define the desired column order
+    desired_order = c("In Silico", "In Vitro", "In Cell", "In Vivo")
+
+    # Check if all desired columns are present
+    if(!all(desired_order %in% names(testdata))) {
+        stop("Not all specified columns are present in the dataframe")
+    }
+
+    # Rearrange the columns according to the desired order
+    ordered_data = testdata[, desired_order]  
+  
+    anno_color_list = c("blue", "orange", "grey")
+    anno_colors = colorRamp2(c(1, 0.5, 0), anno_color_list)
+
+    heatmap_colors = colorRamp2(c(0, 1, 30), c("grey", "lightblue", "blue"))
+
+    lgd = Legend(
+        at = c(1, 0.5, 0),
+        labels = c("High", "Mid", "Low"),
+        title = "Confidence",
+        legend_gp = gpar(fill = anno_color_list),
+        border = "black")
+
+    test_heatmap <- Heatmap(as.matrix(ordered_data), 
+            name = "No. Studies",
+            col = heatmap_colors,
+            column_names_rot = 45,
+            column_order = c("In Silico", "In Vitro", "In Cell", "In Vivo"),
+            row_labels = testdata$Species,
+            row_names_side = "right", 
+            row_names_gp = gpar(fontsize = 7, color = "black", fontface = "bold"), 
+            rect_gp = gpar(col = "white", lwd = 1),
+        show_column_dend = FALSE,
+        show_row_dend = FALSE,
+        border = TRUE)
+
+    anno_heatmap <- Heatmap(as.matrix(testdata["MrSARS"]),
+                            col = anno_colors,
+                            column_names_rot = 45,
+            row_labels = testdata$Species,
+            row_names_side = "right",
+            row_names_gp = gpar(fontsize = 7, color = "black", fontface = "bold"), 
+            rect_gp = gpar(col = "black", lwd = 1),
+            show_column_dend = FALSE,
+            show_row_dend = FALSE,
+            show_heatmap_legend = FALSE)
+
+    # Combine and draw the heatmap
+    combined_heatmap <- draw(test_heatmap + anno_heatmap, 
+                             ht_gap = unit(0.2, "cm"), 
+                             annotation_legend_list = c(lgd), 
+                             merge_legend = TRUE,
+                             column_title = "Replace species title in illustrator", 
+                             column_title_gp = gpar(fontsize = 16))
+    
+    return(combined_heatmap)
+}
+
+# Usage
+# Replace 'your_testdata' with your actual dataframe
+# heatmap_output <- create_test_heatmap(your_testdata)
+
+#Function which takes as input two columns, a positive and a negative and returns a gglot object
+twodot_fun <- function(dta, poscol, negcol) {
+  return (ggplot(dta) +
+            geom_segment(dta, mapping = aes(x=0, y = Species[[1]], xend=0, yend=Species[[length(poscol)]])) +
+            geom_point(aes(x = poscol, y = "Species", color = poscol)) +
+            geom_point(aes(x = negcol, y = "Species", color = negcol)) +
+            ylim(-25,30) +
+            scale_color_gradient2(low="red", mid="lightgrey", high="blue", midpoint=0))
+}
+```
+
+**extract input sequence animal class statistics**
+```{r}
+  # append taxonomic order information to my similarity score file.
+    # Import data
+taxonomy_table_3 <- read_delim("taxonomy_table_3.tsv", 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+ACE2_similarity <- read_delim("modified_MrSARS_ACE2.csv", delim = "\t", escape_double = FALSE, trim_ws = TRUE)
+    # combine dataframes
+ACE2_sim_tax <- taxonomy_table_3 %>% 
+  right_join(ACE2_similarity, by = "Species")
+    # filter out duplicate rows
+ACE2_sim_tax_uniq <- ACE2_sim_tax %>%
+  distinct(Record_ID, .keep_all = T)
+ACE2_sim_tax_uniq_cln <- ACE2_sim_tax_uniq %>%
+  filter(!grepl("_duplicate", Species))
+
+  # calculate number of orders and plot out stacked bar plot
+anml_cls_cnt <- ACE2_sim_tax_uniq_cln %>%
+  count(Class)
+cls_cnt <- StkBarPlt(anml_cls_cnt,"", n, Class)
+cls_cnt
+```
+
+**examine distribution of aggregate scores**
+```{r}
+ACE2_sim_analysis <- read_excel("TableS4_ACE2_similarity_analysis.xlsx", skip = 1)
+
+#extract columns of interest from above tables.
+Ref_scores <- ACE2_sim_analysis %>% select(Species, `AS score`)
+
+#generate single histogram for each score table (see Figure 1b)
+Ref_hist <- ggplot(ACE2_sim_analysis, aes(x = `AS score`)) +
+  geom_histogram(binwidth = 0.1, 
+                 color="black", 
+                 fill="white") +
+  xlim(0,5) +
+  ylim(0,80) +
+  ylab("Count") +
+  xlab("Aggregate similarity score") +
+  theme_classic()
+```
+
+**subset data according to percentiles**
+```{r}
+#Rationale: The goal here is to calculate the percentile the true AS score falls into relative to the AS score distribution generated by MrSARS_sampler.py. Then subset the data according to the percentiles shown in 'perc_plot'.
+
+#import results from brenham's John_sampler_new.py code
+refoutputs <- read_csv("refoutputs.csv")
+
+#Splits the incoming data into the reference scores and the sampled scores
+
+samples <- refoutputs %>% slice(1:1000)
+refs <- refoutputs %>% slice(1001)
+
+#Calculates percentiles for every true reference aggregate score
+percentiles <- refoutputs[0,]
+percentiles[1,] <- as.list(apply(refoutputs,2, function(x) ecdf(x)(x[1001])))
+
+#Looks at the distribution of percentiles
+perc_plot <- function(inp){
+  temp = data.frame(data=as.numeric(inp[1,]))
+  plot <- ggplot() + 
+    geom_histogram(temp, 
+                   mapping = aes(x=temp[,1]),
+                   colour = 1, 
+                   fill = "white",
+                   bins = 40) + 
+    xlab("Percentile") +
+    theme_classic()
+  return(plot)
+}
+
+perc_dst <- perc_plot(percentiles) #see Figure 1c
+```
+
+**plot distribution of AS score vs confidence percentile**
+```{r}
+# Add the 'confidence' column to the dataframe
+ACE2_sim_analysis <- ACE2_sim_analysis %>%
+    mutate(confidence = case_when(
+    percentile >= 0.95 & percentile <= 1   ~ "high",
+    percentile >= 0.8 & percentile < 0.95  ~ "medium",
+    percentile >= 0   & percentile < 0.8   ~ "low",
+    TRUE                                   ~ NA_character_  # Handle any other cases
+  ))
+
+ACE2_sim_analysis$confidence <- factor(ACE2_sim_analysis$confidence, levels = c("high", "medium", "low"))
+
+# visualization of aggregate scores according to percentile as scatter plot (see Figure 1d)
+ACE2_sim_prct_sctr <- ggplot(ACE2_sim_analysis, aes(x = norm_sum, y = percentile, group = confidence)) +
+  geom_point(aes(shape = confidence, color = confidence)) +
+    scale_color_manual(values=c('blue','orange','grey'))+
+  geom_vline(mapping = NULL, xintercept = c(2.95, 3.34), linetype="dashed", color= c('orange','blue'), size=0.5) +
+  xlab("aggregate similarity score") +
+  theme_classic()
+ACE2_sim_prct_sctr
+```
+
+**generate animal order and class stacked bar plots according to sequence percentiles**
+```{r}
+# Import ACE2 similarity analysis file
+ACE2_sim_analysis <- read_csv("TableS4_ACE2_similarity_analysis.xlsx")
+
+# Use dplyr to subset the data frame based on the range
+hi_subset <- ACE2_sim_analysis %>%
+  filter(percentile >= 0.95, percentile <= 1)
+
+med_subset <- ACE2_sim_analysis %>%
+  filter(percentile >= 0.8, percentile < 0.95)
+
+res_subset <- ACE2_sim_analysis %>%
+  filter(percentile >= 0, percentile < 0.8)
+
+# calculate number of orders and plot out stacked bar plot (see Figure 1e, 1f, S3)
+hi_anml_ord_cnt <- hi_subset %>%
+  count(Order)
+hi_ord_cnt <- StkBarPlt(hi_anml_ord_cnt,"", n, Order)
+hi_ord_cnt
+
+hi_anml_cls_cnt <- hi_subset %>%
+  count(Class)
+hi_cls_cnt <- StkBarPlt(hi_anml_cls_cnt,"", n, Class)
+hi_cls_cnt
+
+
+med_anml_ord_cnt <- med_subset %>%
+  count(Order)
+med_ord_cnt <- StkBarPlt(med_anml_ord_cnt,"", n, Order)
+med_ord_cnt
+
+med_anml_cls_cnt <- med_subset %>%
+  count(Class)
+med_cls_cnt <- StkBarPlt(med_anml_cls_cnt,"", n, Class)
+med_cls_cnt
+
+
+res_anml_ord_cnt <- res_subset %>%
+  count(Order)
+res_ord_cnt <- StkBarPlt(res_anml_ord_cnt,"", n, Order)
+res_ord_cnt
+
+res_anml_cls_cnt <- res_subset %>%
+  count(Class)
+res_cls_cnt <- StkBarPlt(res_anml_cls_cnt,"", n, Class)
+low_cls_cnt
+```
+
+**plot distribution of bootstrapped similarity scores along with 'real' similarity score**
+```{r}
+# list of sequence identifiers used in experiments
+exp_species <- c("XM_012638731.1_Propithecus_coquereli", "GCA_004026565.1_Rangifer_tarandus", "XP_029095804_Monodon_monoceros", "XP_020935033_Sus_scrofa", "MT394198.1_Rhinolophus_sinicus", "MT394193.1_Rhinolophus_sinicus", "XP_004710002_Echinops_telfairi", "XM_014960219.1_Calidris_pugnax", "XP_018418558.1_Nanorana_parkeri")
+exp_spc_nm <- c("Propithecus coquereli", "Rangifer tarandus", "Monodon monoceros", "Sus_scrofa", "Rhinolophus sinicus clone 1446", "Rhinolophus sinicus clone 3358", "Echinops telfairi", "Calidris pugnax", "Nanorana parkeri")
+
+
+#plot distributions 
+#helper function for modified boxplot
+quantiles_95 <- function(x) {
+  r <- quantile(x, probs=c(0.05, 0.25, 0.5, 0.75, 0.95))
+  names(r) <- c("ymin", "lower", "middle", "upper", "ymax")
+  r
+}
+
+#This generates a box plot with custom bounds, (5% and 95% vs 1.5*IQR as per standard), with custom stats info and sample points overlaid (see Figure 2b)
+# note: further color adjustments were made in illustrator
+tboxes_plot <- function(){
+  
+small_ref <- refoutputs %>%
+  select(all_of(exp_species))
+  
+  tsamples <- small_ref %>% slice(1:1000)
+  trefs <- small_ref %>% slice(1001)
+  trefs <- data.frame(x=colnames(trefs),y=as.numeric(trefs[1,]))
+  
+  ref_melt <- melt(tsamples, measure.vars=c(colnames(tsamples)), id.vars=(integer()))
+  
+  summaries <- function(y, upper_limit = max(ref_melt$value)) {
+  return(data.frame(
+    y = upper_limit,
+    label = paste(
+      "95% =", round(quantile(y, 0.95), 2), "\n",
+      "Med =", round(median(y), 2), "\n"
+    )
+  ))
+  }
+  tsummaries <- function(y, upper_limit = max(ref_melt$value)) {
+  return(data.frame(
+    y = upper_limit,
+    label = paste(
+      "True =", round(mean(y),2), "\n"
+    )
+  ))
+  }
+  
+  plot <- ggplot(ref_melt, mapping = aes(x=variable,y=value), outlier.shape=NA) + 
+    stat_summary(mapping = aes(color=variable),fun.data = quantiles_95, geom="boxplot", show.legend=FALSE) + 
+    geom_point(trefs, mapping = aes(x=x,y=y), color='red', shape="triangle", size=3) +
+    stat_summary(mapping = aes(group=variable),fun.data=summaries, geom="text",vjust=1.4, size = 3) +
+    stat_summary(data = trefs,mapping = aes(x=x,y=y),fun.data=tsummaries, geom="text",vjust=1, size = 3) +
+    theme_classic() +
+    theme(plot.title = element_text(hjust =0.5, face = "bold"), ) +
+    labs(x = "Species", 
+         y = "Aggregate Score", 
+         title = "Sampled vs Aggregate Scores for Eight Example Species") +
+    scale_x_discrete(labels = exp_spc_nm) 
+  return(plot)
+}
+tboxes_plot()
+
+#This creates a histogram of all samples for a single species (see Fig S2)
+spec_plot <- function(spec){
+  plot <- ggplot() + 
+    geom_histogram(samples, mapping = aes(x=samples[[spec]]),colour = 1, fill = "lightgrey") + 
+    geom_segment(mapping = aes(x = refs[[spec]][1], xend = refs[[spec]][1],y = 0,yend = Inf), linetype="solid", color="red", size=1) + 
+    xlab(spec) +
+    geom_label(mapping = aes(x = refs[[spec]][1],
+                             y=80,
+                             label=paste("Agg Score: ", round(refs[[spec]][1],2),"\n",
+                             "Percentile: ", round(ecdf(samples[[spec]])(refs[[spec]][1]),2), "\n",
+                             "Rank: ", length(samples[[spec]]) - findInterval(refs[[spec]][1],sort(samples[[spec]])), sep=""))) +
+    theme_light() +
+    theme(plot.title = element_text(hjust =0.5, face = "bold"), ) +
+    labs(y="Count", title = "Aggregate Score Overlaid on Sampled Score Distributions")
+  return(plot)
+}
+
+reindeer_dist <- spec_plot("GCA_004026565.1_Rangifer_tarandus")
+pangolin_dist <- spec_plot("JAMQTK010000075.1_Manis_javanica")
+hedgehog_dist <- spec_plot("XP_004710002_Echinops_telfairi")
+gshark_dist <- spec_plot("XP_007889845.1_Callorhinchus_milii_Damas2020")
+```
+
+*count up instances of each type of virus from literature table (see Figure S5)*
+```{r}
+SC2_infection_lit <- read_excel("TableS1_species_infection_literature.xlsx")
+
+strn_cnt <- SC2_infection_lit %>%
+  group_by(CoV_type) %>%
+  summarize(unique_strain_count = n_distinct(CoV_strain))
+
+strn_cnt_plt <- StkBarPlt(strn_cnt, "", unique_strain_count, CoV_type)
+```
+
+*compare species analyzed in literature to current study (Figure 4a)*
+```{r}
+#import literature file
+SC2_infection_lit <- read_excel("TableS1_species_infection_literature.xlsx")
+#import similarity file
+ACE2_sim_analysis <- read_csv("TableS4_ACE2_similarity_analysis.xlsx")
+
+# Create subset dataframes and exclude NA
+ACE2_sim_analysis_spc <- unique(ACE2_sim_analysis$Species)
+
+df_in_silico <- SC2_infection_lit %>% 
+  filter(in_silico != "NA", !is.na(in_silico)) %>% 
+  select(Species, in_silico)
+in_silico_sp <- unique(df_in_silico$Species)
+
+df_in_vitro <- SC2_infection_lit %>% 
+  filter(in_vitro != "NA", !is.na(in_vitro)) %>% 
+  select(Species, in_vitro)
+in_vitro_sp <- unique(df_in_vitro$Species)
+
+df_in_cell <- SC2_infection_lit %>% 
+  filter(in_cell != "NA", !is.na(in_cell)) %>% 
+  select(Species, in_cell)
+in_cell_sp <- unique(df_in_cell$Species)
+
+df_in_vivo <- SC2_infection_lit %>% 
+  filter(in_vivo != "NA", !is.na(in_vivo)) %>% 
+  select(Species, in_vivo)
+in_vivo_sp <- unique(df_in_vivo$Species)
+
+spc_vn <- list(`in silico` = in_silico_sp, 
+               `in vitro` = in_vitro_sp, 
+               `in cell` = in_cell_sp, 
+               `in vivo` = in_vivo_sp, 
+               MrSARS = ACE2_sim_analysis_spc)
+
+upset <- ggVennDiagram(spc_vn,
+                       force_upset = TRUE)
+
+upset
+```
+
+*compare similarity predictions to literature as heatmap*
+```{r}
+#import literature file
+SC2_infection_lit <- read_excel("TableS1_species_infection_literature.xlsx")
+#import similarity file
+ACE2_sim_analysis <- read_csv("TableS4_ACE2_similarity_analysis.xlsx")
+
+#Summarize species representation
+ACE2_sim_spc_cnt <- ACE2_sim_analysis %>%
+  count(Species)
+
+# Count the number of times 1 shows up for each species
+  # literature summary
+lit_spc_cnt <- SC2_infection_lit %>%
+  group_by(Species) %>%
+  summarize(
+    overall = sum(overall == 1),
+    in_vivo = sum(in_vivo == 1),
+    in_cell = sum(in_cell == 1),
+    in_vitro = sum(in_vitro == 1),
+    in_silico = sum(in_silico == 1)
+  )
+  # my homology analysis
+    # append binary values by percentile
+ACE2_sim_analysis <- ACE2_sim_analysis %>%
+  mutate(current_study = case_when(
+    percentile >= 0.95 ~ 1,
+    percentile >= 0.8 & percentile < 0.95 ~ 0.5,
+    percentile < 0.8 ~ 0,
+    TRUE ~ NA_real_  # This line handles any other cases, such as NA values
+  ))
+  # homology analysis summary
+ACE2_sim_susc <- ACE2_sim_analysis %>%
+  select(Species, Class, Clade, Order, Family, current_study) 
+
+# combine susceptibility counts 
+lit_ACE2sim_count <- inner_join(lit_spc_cnt, ACE2_sim_susc, by = "Species") #here only species that are present in both datasets are included
+#   count the number of unique species in combined dataset
+    lit_ACE2sim_count_sp <- n_distinct(lit_ACE2sim_count$Species) #449 unique species
+# only keep the highest current_study score for each unique species
+lit_ACE2sim_count_tight <- lit_ACE2sim_count %>%
+  group_by(Species) %>%
+  arrange(desc(current_study), .by_group = TRUE) %>%
+  slice(1)
+
+#Assign numeric identity to study columns
+lit_ACE2sim_count_tight <- lit_ACE2sim_count_tight %>% mutate_at(c('in_vivo', 'in_cell', 'in_vitro', 'in_silico'), as.numeric)
+
+#Reformat species names to look nicer
+lit_ACE2sim_count_tight$Species <- str_to_title(sub("_", " ", lit_ACE2sim_count_tight$Species))
+
+#Rename things to make it look a little neater?
+lit_ACE2sim_count_tight <- lit_ACE2sim_count_tight %>% rename("In Cell" = "in_cell",
+                                  "In Vitro" = "in_vitro",
+                                  "In Vivo" = "in_vivo",
+                                  "In Silico" = "in_silico",
+                                  "MrSARS" = "current_study"
+                                  )
+#   export this table as a csv file for the paper.   
+#    write.table(lit_ACE2sim_count_tight, 
+#                file = "~/Desktop/Desktop - MacBook Pro/Yale_University/Iwasaki_Research_projects/ACE2_CoV2/ACE2_homology_paper_DatByFig/Supplemental_Tables/TableS2_lit_MrSARS_counts.csv", 
+#                sep = ",", 
+#                row.names = FALSE, 
+#                col.names = TRUE, 
+#                quote = FALSE) 
+
+
+# filter out mammals for downstream visualization (see Figure 4b)
+# extract model organisms
+models <- c("Mesocricetus Auratus", "Nyctereutes Procyonoides", "Manis Javanica", "Paguma Larvata","Mus Musculus", "Rhinolophus Affinis", "Neogale Vison", "Odocoileus Virginianus_texanus")
+# extract relevant groups
+bats <- lit_ACE2sim_count_tight %>%
+  filter(Order %in% c("Chiroptera"))
+rodents <- lit_ACE2sim_count_tight %>%
+  filter(Order %in% c("Rodentia"))
+artiodactyla <- lit_ACE2sim_count_tight %>%
+  filter(Order %in% c("Artiodactyla"))
+carnivores <- lit_ACE2sim_count_tight %>%
+  filter(Order %in% c("Carnivora"))
+primates <- lit_ACE2sim_count_tight %>%
+  filter(Order %in% c("Primates"))
+model_orgs <- lit_ACE2sim_count_tight %>%
+  filter(Species %in% models)
+
+batmap <- complex_heatmap(bats)
+rodentmap <- complex_heatmap(rodents)
+artiomap <- complex_heatmap(artiodactyla)
+carnivoremap <- complex_heatmap(carnivores)
+primatemap <- complex_heatmap(primates)
+modelmap <- complex_heatmap(model_orgs)
+```
+
+*look at how literature studies compare to our analyses and assess whether there is conflicts in literature (see Figures S7, S8*
+```{r}
+#import literature file
+SC2_infection_lit <- read_excel("TableS1_species_infection_literature.xlsx")
+# import ACE2 analysis x literature summary table generated above. This contains animal order information.
+lit_ACE2_comp <- read_csv("TableS2_lit_MrSARS_counts.xlsx")
+
+# count the number of unique studies
+SC2_infection_lit_cnt <- n_distinct(SC2_infection_lit$title) #131 unique papers
+
+# count the number of unique species
+SC2_infection_lit_sp <- n_distinct(SC2_infection_lit$Species) #533 unique species
+
+# Count the number of times 1 and 0 appear for each species-virus combination
+# in each of the columns
+lit_comp <- SC2_infection_lit %>%
+  group_by(CoV_type, Species) %>%
+  summarise(
+    count_1_in_silico = sum(in_silico == 1, na.rm = TRUE),
+    count_0_in_silico = -sum(in_silico == 0, na.rm = TRUE),
+    count_1_in_vitro = sum(in_vitro == 1, na.rm = TRUE),
+    count_0_in_vitro = -sum(in_vitro == 0, na.rm = TRUE),
+    count_1_in_cell = sum(in_cell == 1, na.rm = TRUE),
+    count_0_in_cell = -sum(in_cell == 0, na.rm = TRUE),
+    count_1_in_vivo = sum(in_vivo == 1, na.rm = TRUE),
+    count_0_in_vivo = -sum(in_vivo == 0, na.rm = TRUE)
+  )
+
+lit_comp <- lit_comp %>% rename("in silico yes" = "count_1_in_silico",
+                                "in silico no" = "count_0_in_silico",
+                                "in vitro yes" = "count_1_in_vitro",
+                                "in vitro no" = "count_0_in_vitro",
+                                "in cell yes" = "count_1_in_cell",
+                                "in cell no" = "count_0_in_cell",
+                                "in vivo yes" = "count_1_in_vivo",
+                                "in vivo no" = "count_0_in_vivo"
+                                )
+
+# Specifying column pairs
+std_pairs <- list(
+  c("in silico yes", "in silico no"),
+  c("in vitro yes", "in vitro no"),
+  c("in cell yes", "in cell no"),
+  c("in vivo yes", "in vivo no")
+)
+
+# Filtering out rows where there is no conflicting studies
+filter_rows_by_pairs <- function(data, column_pairs) {
+    # Filtering rows based on the criteria
+    filtered_data <- data %>%
+      filter(Reduce(`|`, lapply(column_pairs, function(p) {
+        !((.[[p[1]]] == 0) | (.[[p[2]]] == 0))
+      })))
+
+    return(filtered_data)
+}
+
+# heatmpat function for filtered datasets
+subset_heatmap <- function(testdata, title) {
+  # Define figure title
+  figure_title = title 
+  # Define the desired column order
+    desired_order = c("in silico", "in vitro", "in cell", "in vivo")
+
+    # Check if all desired columns are present
+    if (!all(desired_order %in% names(testdata))) {
+        stop("Not all specified columns are present in the dataframe")
+    }
+
+    # Rearrange the columns according to the desired order
+    ordered_data = testdata[, desired_order]
+
+    # Define heatmap colors
+    heatmap_colors = colorRamp2(c(0, 5, 30), c("white", "skyblue", "blue"))
+
+    # Create the heatmap
+    test_heatmap <- Heatmap(as.matrix(ordered_data), 
+                            name = "Dis. Score",
+                            col = heatmap_colors,
+                            column_names_rot = 45,
+                            column_order = desired_order,
+                            row_labels = testdata$Species,
+                            row_names_side = "right", 
+                            row_names_gp = gpar(fontsize = 4, color = "black", fontface = "bold"), 
+                            rect_gp = gpar(col = "grey", lwd = 1),
+                            show_column_dend = FALSE,
+                            show_row_dend = FALSE,
+                            border = TRUE)
+
+    # Draw the heatmap
+    test_heatmap_fnxn <- draw(test_heatmap, 
+                             ht_gap = unit(0.2, "cm"), 
+                             merge_legend = TRUE,
+                             column_title = figure_title, 
+                             column_title_gp = gpar(fontsize = 16))
+    
+    return(test_heatmap_fnxn)
+}
+
+# make a cool dotplot
+twodot_plots <- function(data, pos_columns, neg_columns) {
+    twodot_fun <- function(data, poscol, negcol, show_y_axis = TRUE) {
+        p <- ggplot(data) +
+            geom_vline(xintercept = 0, linetype = "dashed", color = "black") +
+            geom_point(aes(x = !!sym(poscol), y = Species, color = !!sym(poscol))) +
+            geom_point(aes(x = !!sym(negcol), y = Species, color = !!sym(negcol))) +
+            xlim(-25, 30) +
+            scale_color_gradient2(low = "red", mid = "lightgrey", high = "blue", midpoint = 0) +
+            theme(legend.position = "none", # Remove individual plot legends
+                  axis.text.y = element_text(size = 4, face = "bold", color = "black"),
+                  axis.title.y = element_blank())  # Remove y-axis title
+
+        if (!show_y_axis) {
+            p <- p + theme(axis.text.y = element_blank(),
+                           axis.ticks.y = element_blank())
+        }
+
+        return(p)
+    }
+
+    plots_list <- map2(pos_columns, neg_columns, ~twodot_fun(data, .x, .y, .x == pos_columns[1]))
+    
+    return(plots_list)
+}
+  
+# subset study counts data according to CoV_type
+#   SCV2
+lit_comp_SCV2 <- lit_comp %>%
+  filter(CoV_type == "SCV2")
+lit_comp_SCV2_flt <- filter_rows_by_pairs(lit_comp_SCV2, std_pairs)
+lit_comp_SCV2_flt %<>% mutate(`in silico` =sqrt(`in silico yes`*abs(`in silico no`)),
+                              `in vitro` =sqrt(`in vitro yes`*abs(`in vitro no`)),
+                              `in cell` =sqrt(`in cell yes`*abs(`in cell no`)),
+                              `in vivo` =sqrt(`in vivo yes`*abs(`in vivo no`)))
+lit_comp_SCV2_flt_sp <- unique(lit_comp_SCV2_flt$Species) #124 unique species
+lit_comp_SCV2_hm <- subset_heatmap(lit_comp_SCV2_flt, "SCV2")
+lit_comp_SCV2_ddp_lst <- twodot_plots(lit_comp_SCV2_flt, c("in silico yes", "in vitro yes", "in cell yes", "in vivo yes"), 
+                                      c("in silico no", "in vitro no", "in cell no", "in vivo no"))
+# Arrange plots with equal widths
+lit_comp_SCV2_ddp <- ggarrange(plotlist = lit_comp_SCV2_ddp_lst, 
+                               ncol = 4, nrow = 1, 
+                               common.legend = TRUE, legend = "right",
+                               widths = c(1.5, 1, 1, 1))  # Equal widths for each plot
+
+#   SCV1
+lit_comp_SCV1 <- lit_comp %>%
+  filter(CoV_type == "SCV1")
+lit_comp_SCV1_flt <- filter_rows_by_pairs(lit_comp_SCV1, std_pairs)
+lit_comp_SCV1_flt %<>% mutate(`in silico` =sqrt(`in silico yes`*abs(`in silico no`)),
+                              `in vitro` =sqrt(`in vitro yes`*abs(`in vitro no`)),
+                              `in cell` =sqrt(`in cell yes`*abs(`in cell no`)),
+                              `in vivo` =sqrt(`in vivo yes`*abs(`in vivo no`)))
+lit_comp_SCV1_flt_sp <- unique(lit_comp_SCV1_flt$Species) #30 unique species
+lit_comp_SCV1_hm <- subset_heatmap(lit_comp_SCV1_flt, "SCV1")
+lit_comp_SCV1_ddp_lst <- twodot_plots(lit_comp_SCV1_flt, c("in silico yes", "in vitro yes", "in cell yes", "in vivo yes"), 
+                                      c("in silico no", "in vitro no", "in cell no", "in vivo no"))
+# Arrange plots with equal widths
+lit_comp_SCV1_ddp <- ggarrange(plotlist = lit_comp_SCV1_ddp_lst, 
+                               ncol = 4, nrow = 1, 
+                               common.legend = TRUE, legend = "right",
+                               widths = c(1.5, 1, 1, 1))  # Equal widths for each plot
+
+#   SCV2-related
+lit_comp_SCV2l <- lit_comp %>%
+  filter(CoV_type == "SCV2-like")
+lit_comp_SCV2l_flt <- filter_rows_by_pairs(lit_comp_SCV2l, std_pairs)
+lit_comp_SCV2l_flt %<>% mutate(`in silico` =sqrt(`in silico yes`*abs(`in silico no`)),
+                              `in vitro` =sqrt(`in vitro yes`*abs(`in vitro no`)),
+                              `in cell` =sqrt(`in cell yes`*abs(`in cell no`)),
+                              `in vivo` =sqrt(`in vivo yes`*abs(`in vivo no`)))
+lit_comp_SCV2l_flt_sp <- unique(lit_comp_SCV2l_flt$Species) #40 unique species
+lit_comp_SCV2l_hm <- subset_heatmap(lit_comp_SCV2l_flt, "SCV2-like")
+lit_comp_SCV2l_ddp_lst <- twodot_plots(lit_comp_SCV2l_flt, c("in silico yes", "in vitro yes", "in cell yes", "in vivo yes"), 
+                                      c("in silico no", "in vitro no", "in cell no", "in vivo no"))
+# Arrange plots with equal widths
+lit_comp_SCV2l_ddp <- ggarrange(plotlist = lit_comp_SCV2l_ddp_lst, 
+                               ncol = 4, nrow = 1, 
+                               common.legend = TRUE, legend = "right",
+                               widths = c(1.5, 1, 1, 1))  # Equal widths for each plot
+
+#   SCV1-related
+lit_comp_SCV1l <- lit_comp %>%
+  filter(CoV_type == "SCV1-like")
+lit_comp_SCV1l_flt <- filter_rows_by_pairs(lit_comp_SCV1l, std_pairs)
+lit_comp_SCV1l_flt %<>% mutate(`in silico` =sqrt(`in silico yes`*abs(`in silico no`)),
+                              `in vitro` =sqrt(`in vitro yes`*abs(`in vitro no`)),
+                              `in cell` =sqrt(`in cell yes`*abs(`in cell no`)),
+                              `in vivo` =sqrt(`in vivo yes`*abs(`in vivo no`)))
+lit_comp_SCV1l_flt_sp <- unique(lit_comp_SCV1l_flt$Species) #10 unique species
+lit_comp_SCV1l_hm <- subset_heatmap(lit_comp_SCV1l_flt, "SCV1-like")
+lit_comp_SCV1l_ddp_lst <- twodot_plots(lit_comp_SCV1l_flt, c("in silico yes", "in vitro yes", "in cell yes", "in vivo yes"), 
+                                      c("in silico no", "in vitro no", "in cell no", "in vivo no"))
+# Arrange plots with equal widths
+lit_comp_SCV1l_ddp <- ggarrange(plotlist = lit_comp_SCV1l_ddp_lst, 
+                               ncol = 4, nrow = 1, 
+                               common.legend = TRUE, legend = "right",
+                               widths = c(1.5, 1, 1, 1))  # Equal widths for each plot
+```

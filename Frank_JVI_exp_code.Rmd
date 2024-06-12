@@ -1,0 +1,409 @@
+---
+title: "Frank_JVI_exp_code"
+author: "John Frank"
+date: "2024-06-12"
+output: html_document
+---
+
+The following content provides code used to visualize and statistically quantify the results of luciferase assays performed on cell lysates generated from 293T cells previously transfected with pCMV6-insert-MYC-FLAG expression plasmids and subsequently infected with VSV-Luc virus pseudotyped with spikes from SCV2-VOC spikes. These plasmids encode codon-optimized ACE2 ORFs encoded by various chosen species. 
+
+*luciferase assay results from cells infected with SCV2-VOC-S pseudotyped VSV-Luc reporter virus*
+```{r}
+#load relevant packages
+library(dplyr)
+library(ggplot2)
+library(readxl)
+library(RColorBrewer)
+library(plotrix)
+library(ggpubr)
+library(scales)
+library(emmeans)
+
+#load up boxplot function
+boxPlt_nrm <- function(data, x, y, confidence){
+  ggplot(data = data, aes(x = x, y = y, fill = confidence)) +
+    geom_boxplot(notch = FALSE,
+                 outlier.shape = NA) +
+    ylab("Normalized Signal (species/GFP)") +
+    xlab("species") +
+    scale_fill_manual(values = c("blue","orange","white","grey")) +
+    geom_hline(yintercept=1, linetype="dashed", color = "blue") +
+    theme_classic() +
+    scale_y_continuous(trans='log10') +
+    coord_flip() +
+    theme_pubr() +
+    theme(axis.text.x = element_text(color = "black", size = 10, hjust = 1),
+        axis.text.y = element_text(color = "black", size = 10),
+        axis.title = element_text(size = 12),
+        legend.text = element_text(face = "bold"),
+        legend.title = element_text(size = 12))
+}
+
+# function to perform statistics (least squares mean with Dunnett's post hoc test) on my virus-specific datasets
+emm_dunnett <- function(data, response, predictor) {
+  # Fit the linear model
+  lm_model <- lm(as.formula(paste(response, "~", predictor)), data = data)
+  
+  # Get the estimated marginal means
+  emm <- emmeans(lm_model, specs = predictor)
+  
+  # Perform contrasts with the first and second levels as references
+  emm_ref_1 <- contrast(emm, "trt.vs.ctrl", ref = 1) #ref specifies first species listed (here GFP)
+  emm_ref_2 <- contrast(emm, "trt.vs.ctrl", ref = 2) #ref specifies second species listed (here human)
+  
+  # Return the results
+  list(emm_ref_1 = emm_ref_1, emm_ref_2 = emm_ref_2)
+}
+
+# Example of usage
+#results <- perform_emm_analysis(WA1, "mean_GNS", "species")
+```
+
+```{r}
+#import data
+X020424_ACE2sp_VOC_sum <- read_excel("ACE2sp_VOC_sum.xlsx")
+```
+
+**subset data according to virus, sort, summarize, and perform statistical analysis of data**
+```{r}
+# remove hsRS column
+ACE2sp_VOC_ngs_sum <- select(X020424_ACE2sp_VOC_sum, -mean_HSRS)
+
+# clean out rows with NA
+ACE2sp_VOC_sum <- na.omit(ACE2sp_VOC_ngs_sum)
+
+# add in species and confidence categories to master dataframe 'ACE2sp_VOC_sum'
+species <- c("ruff", "hedgehog", "sinicus bat (3357)", "sinicus bat (1446)", "pig", "narwhal", "reindeer", "sifaka", "affinis bat", "mink", "deer",  "mouse", "human", "GFP")
+confidence <- c(rep("Resistant",  2), "Medium", rep("High", 5), rep("Reference", 6))
+categories <- as.data.frame(confidence, species) # combine species and confidence vectors 
+ACE2sp_VOC_sum <- ACE2sp_VOC_sum %>% mutate(confidence = categories[ACE2sp_VOC_sum$species,"confidence"])
+
+# Subset data according to virus
+#   WA1
+WA1 <- filter(ACE2sp_VOC_sum, Treatment == "WA1")
+WA1$replicate <- as.character(WA1$replicate)
+WA1$species <- factor(WA1$species, levels = c("ruff", "hedgehog", "sinicus bat (3357)", "sinicus bat (1446)", "pig", "narwhal", "reindeer", "sifaka", "affinis bat", "mink", "deer",  "mouse", "human", "GFP"))
+#   beta
+beta <- filter(ACE2sp_VOC_sum, Treatment == "beta")
+beta$replicate <- as.character(beta$replicate)
+beta$species <- factor(beta$species, levels = c("ruff", "hedgehog", "sinicus bat (3357)", "sinicus bat (1446)", "pig", "narwhal", "reindeer", "sifaka", "affinis bat", "mink", "deer",  "mouse", "human", "GFP"))
+#   delta
+delta <- filter(ACE2sp_VOC_sum, Treatment == "delta")
+delta$replicate <- as.character(delta$replicate)
+delta$species <- factor(delta$species, levels = c("ruff", "hedgehog", "sinicus bat (3357)", "sinicus bat (1446)", "pig", "narwhal", "reindeer", "sifaka", "affinis bat", "mink", "deer",  "mouse", "human", "GFP"))
+#   omicron_BA1
+om_BA1 <- filter(ACE2sp_VOC_sum, Treatment == "om_BA1")
+om_BA1$replicate <- as.character(om_BA1$replicate)
+om_BA1$species <- factor(om_BA1$species, levels = c("ruff", "hedgehog", "sinicus bat (3357)", "sinicus bat (1446)", "pig", "narwhal", "reindeer", "sifaka", "affinis bat", "mink", "deer",  "mouse", "human", "GFP"))
+#   omicron_BA4
+om_BA4 <- filter(ACE2sp_VOC_sum, Treatment == "om_BA4")
+om_BA4$replicate <- as.character(om_BA4$replicate)
+om_BA4$species <- factor(om_BA4$species, levels = c("ruff", "hedgehog", "sinicus bat (3357)", "sinicus bat (1446)", "pig", "narwhal", "reindeer", "sifaka", "affinis bat", "mink", "deer",  "mouse", "human", "GFP"))
+
+# now the stats using emm_dunnett function
+# This is a least squares regression with Dunnett's post hoc multiple comparison test
+emm_WA1 <- emm_dunnett(WA1, "mean_GNS", "species")
+emm_beta <- emm_dunnett(beta, "mean_GNS", "species")
+emm_delta <- emm_dunnett(delta, "mean_GNS", "species")
+emm_BA1 <- emm_dunnett(om_BA1, "mean_GNS", "species")
+emm_BA4 <- emm_dunnett(om_BA4, "mean_GNS", "species")
+```
+
+**generate single plots for each spike tested (see Figures 2d-2h)**
+```{r}
+#plot human normalized data in boxplot format with replicate measurements plotted as dots. the point of this layout is to compare ACE2sp-mediated entry to human ACE2.
+WA1bx_NS <- boxPlt_nrm(WA1, WA1$species, WA1$mean_GNS, WA1$confidence)
+betabx_NS <- boxPlt_nrm(beta, beta$species, beta$mean_GNS, beta$confidence)
+deltabx_NS <- boxPlt_nrm(delta, delta$species, delta$mean_GNS, delta$confidence)
+om_BA1bx_NS <- boxPlt_nrm(om_BA1, om_BA1$species, om_BA1$mean_GNS, om_BA1$confidence)
+om_BA4bx_NS <- boxPlt_nrm(om_BA4, om_BA4$species, om_BA4$mean_GNS, om_BA4$confidence)
+
+#generate summarizing figure for all viruses
+#layout boxplots in single column (GFP normalized signal)
+VOC_NS <- ggarrange(WA1bx_NS + rremove("xlab") + rremove("ylab") ,
+                 betabx_NS + rremove("xlab") + rremove("ylab") ,
+                 deltabx_NS+ rremove("xlab") + rremove("ylab") , 
+                 om_BA1bx_NS+ rremove("xlab") + rremove("ylab") ,
+                 om_BA4bx_NS + rremove("xlab") + rremove("ylab") ,
+                        ncol = 1,
+                        nrow = 5,
+                        common.legend = TRUE, legend = "right",
+                        align = "v"
+                        )
+VOC_NS_an <- annotate_figure(VOC_NS,
+                            top = text_grob("SARS-CoV-2 VOC Spikes"),
+                            bottom = text_grob("Normalized Signal (species/GFP)"))
+```
+
+
+The following content provides code used to visualize and statistically quantify the results of luciferase assays performed on cell lysates generated from 293T cells previously transfected with pCMV6-insert-MYC-FLAG expression plasmids and subsequently infected with VSV-Luc virus pseudotyped with spikes from bat sarbecovirus spikes (encoded in viruses isolated from various bats). These plasmids encode codon-optimized ACE2 ORFs from chosen species. 
+
+*luciferase assay results from cells infected with bat sarbecovirus-spike pseudotyped VSV-Luc reporter virus (see Figure 3d & 3e)*
+```{r}
+#load up boxplot function (this is for batS data)
+boxPlt_nrm <- function(data, x, y, z){
+  ggplot(data = data, aes(x = x, y = y, fill = species)) +
+    geom_boxplot(notch = FALSE,
+                 outlier.shape = NA) +
+    ylim(0,75) + 
+    ylab("Normalized Signal
+    (species/human)") +
+    xlab("species") +
+    geom_hline(yintercept=1, linetype="dashed", color = "blue") +
+    theme_classic() +
+    coord_flip() +
+    theme_pubr() +
+    theme(axis.text.x = element_text(color = "black", size = 5, hjust = 1),
+        axis.text.y = element_text(color = "black", size = 5 ),
+        axis.title = element_text(size = 5),
+        legend.text = element_text(face = "bold"),
+        legend.title = element_text(size = 12))
+}
+
+# function to perform statistics (least squares mean with Dunnett's post hoc test) on my virus-specific datasets
+emm_dunnett <- function(data, response, predictor) {
+  # Fit the linear model
+  lm_model <- lm(as.formula(paste(response, "~", predictor)), data = data)
+  
+  # Get the estimated marginal means
+  emm <- emmeans(lm_model, specs = predictor)
+  
+  # Perform contrasts with the first and second levels as references
+  emm_ref_1 <- contrast(emm, "trt.vs.ctrl", ref = 1) #ref specifies first species listed (here GFP)
+  emm_ref_2 <- contrast(emm, "trt.vs.ctrl", ref = 2) #ref specifies second species listed (here human)
+  
+  # Return the results
+  list(emm_ref_1 = emm_ref_1, emm_ref_2 = emm_ref_2)
+}
+
+# Example of usage
+#results <- perform_emm_analysis(WA1, "mean_GNS", "species")
+```
+*import data*
+```{r}
+#import BatS data
+ACE2sp_BatS_sum <- read_excel("ACE2sp_SARSr_sum.xlsx")
+
+#import SARS2 data
+X080822_ACE2sp_VOC_sum <- read_excel("ACE2sp_VOC_sum.xlsx")
+```
+
+*subset data according to virus, sort, summarize, and perform statistical analysis*
+```{r}
+# B52
+B52 <- filter(ACE2sp_BatS_sum, Treatment == "BANAL52")
+B52$replicate <- as.character(B52$replicate)
+B52$species <- factor(B52$species, levels = c("GFP", "human", "mouse", "deer", "mink", "affinis bat", "hedgehog", "ruff", "sifaka", "reindeer", "narwhal", "pig", "sinicus bat", "sinicus bat (1446)"))
+# B236
+B236 <- filter(ACE2sp_BatS_sum, Treatment == "BANAL236")
+B236$replicate <- as.character(B236$replicate)
+B236$species <- factor(B236$species, levels = c("GFP", "human", "mouse", "deer", "mink", "affinis bat", "hedgehog", "ruff", "sifaka", "reindeer", "narwhal", "pig", "sinicus bat", "sinicus bat (1446)"))
+# SARS1
+SARS <- filter(ACE2sp_BatS_sum, Treatment == "SCV1")
+SARS$replicate <- as.character(SARS$replicate)
+SARS$species <- factor(SARS$species, levels = c("GFP", "human", "mouse", "deer", "mink", "affinis bat", "hedgehog", "ruff", "sifaka", "reindeer", "narwhal", "pig", "sinicus bat", "sinicus bat (1446)"))
+# WIV1
+WIV1 <- filter(ACE2sp_BatS_sum, Treatment == "WIV1")
+WIV1$replicate <- as.character(WIV1$replicate)
+WIV1$species <- factor(WIV1$species, levels = c("GFP", "human", "mouse", "deer", "mink", "affinis bat", "hedgehog", "ruff", "sifaka", "reindeer", "narwhal", "pig", "sinicus bat", "sinicus bat (1446)"))
+
+# now the stats using emm_dunnett function
+emm_B52 <- emm_dunnett(B52, "mean_GNS", "species")
+emm_B236 <- emm_dunnett(B236, "mean_GNS", "species")
+emm_SARS <- emm_dunnett(SARS, "mean_GNS", "species")
+emm_WIV1 <- emm_dunnett(WIV1, "mean_GNS", "species")
+```
+
+*plot normalized signal data in boxplot format*
+```{r}
+#plot human normalized data in boxplot format with replicate measurements plotted as dots. the point of this layout is to compare ACE2sp-mediated entry to human ACE2.
+WA1bx_NS <- boxPlt_nrm(WA1, WA1$species, WA1$mean_GNS, WA1$species)
+SARSbx_NS <- boxPlt_nrm(SARS, SARS$species, SARS$mean_GNS, SARS$species)
+B52bx_NS <- boxPlt_nrm(B52, B52$species, B52$mean_GNS, B52$species)
+B236bx_NS <- boxPlt_nrm(B236, B236$species, B236$mean_GNS, B236$species)
+WIV1bx_NS <- boxPlt_nrm(WIV1, WIV1$species, WIV1$mean_GNS, WIV1$species)
+
+#layout boxplots in single column (GFP normalized signal)
+SCVl_khl_NS <- ggarrange(B52bx_NS+ rremove("xlab") + rremove("ylab") + rremove("x.text"), 
+                   B236bx_NS+ rremove("xlab") + rremove("ylab") + rremove("x.text"),
+                   SARSbx_NS + rremove("xlab") + rremove("ylab") + rremove("x.text"),
+                   WIV1bx_NS + rremove("xlab") + rremove("ylab") + rremove("x.text"),
+                        ncol = 1,
+                        nrow = 4,
+                        common.legend = TRUE, legend = "right",
+                        align = "v"
+                        )
+SCVl_khl_NS_an <- annotate_figure(SCVl_khl_NS,
+                            top = text_grob("SARS-CoV-1/2 like Spikes"),
+                            bottom = text_grob("Normalized Signal (species/GFP)"))
+```
+
+The following code processes and plots data generated in angiotensin conversion assays (see Figure S4). 
+
+```{r}
+#load packages
+library(readxl)
+library(tidyverse)
+library(ggpubr)
+library(scales)
+library(gridExtra)
+
+#load line plot function
+aca_ln <- function(acadt){
+  ggplot(data = acadt, aes(x=Time_.sec., y=avg, group = Sample)) +
+    geom_line(aes(color = Sample)) +
+    geom_point(aes(color = Sample)) +
+    geom_errorbar(aes(ymin=avg-sd, ymax=avg+sd), 
+                  width=1, 
+                  position=position_dodge(0.05)) + 
+    scale_y_continuous(labels = scales::label_scientific()) +
+    ylab("fluorescence") +
+    xlab("Time (seconds)") +
+    theme_classic() +
+    theme_pubr() +
+    theme(axis.text.x = element_blank()
+        )
+}
+
+```
+
+```{r}
+#import data from excel file
+ACA_raw <- read_excel("ACA_replicate.xlsx")
+#View(X081822_ACA_pilot)  
+
+#apply the following data manipulation to the data above as a function
+##create a function for sub-setting the data according to sample and calculate mean with stdev
+###s = input variable applied within function for example if I want to analyze GFP samples: subset.lbl.mean.sd(GFP)
+subset.lbl.mean.sd <- function(s){
+#create vector of desired sample name with numeric value attached 
+nv <- c(1:3) # here nv = the value (i.e. 1, 2, 3) to be appended to the sample name 
+sn <- paste(s, nv, sep = "") # this should generate a sample list (e.g. sn <- c(GFP1, GFP2, GFP3)
+
+#subset data according to each sample. 
+sbst <- ACA_raw %>% select('Time_(sec)', all_of(sn)) #ACA_raw refers to input excel sheet, # select refers to which columns being called, # all_of(sn) refers to the vector of sample names  (i.e. column headers) we are selecting
+sbst <- sbst %>% add_column(Sample = s) # add a column that contains the sample ID
+##calculate mean and standard deviation according to each row
+sts <- sbst %>% rowwise() %>% mutate(
+        avg = mean(c_across(all_of(sn))),
+        sd = sd(c_across(all_of(sn)))
+)
+write.table(sts, 
+            file= paste(s, ".tsv", sep = ""), 
+            col.names = T,
+            row.names = FALSE,
+            quote = FALSE,
+            sep = "\t")
+}
+```
+
+```{r}
+#iterate table processing function over my vector of samples
+vctr <- c('GFP', 'HS', 'MM', 'OVT', 'NV', 'RA', 'PC', 'RT', 'MMon', 'SS', 'RS', 'RS1446', 'CP', 'ET', 
+          'GFPi', 'HSi', 'MMi', 'OVTi', 'NVi', 'RAi', 'PCi', 'RTi', 'MMoni', 'SSi', 'RSi', 'RS1446i', 'CPi', 'ETi')
+
+#set the working directory to which I will write the files
+setwd("ACA_data_directory/")
+#run above function as for loop
+for (i in vctr) {
+i <- subset.lbl.mean.sd(i)  
+}
+```
+
+```{r}
+#now that I have separate files for all of the individual samples I will import and concatenated them into one larger data frame that can then be used to plot over as a line graph.
+# Set working directory for following steps
+setwd("path/to/ACA_data_directory/")
+
+vctr <- c('GFP', 'HS', 'MM', 'OVT', 'NV', 'RA', 'PC', 'RT', 'MMon', 'SS', 'RS', 'RS1446', 'CP', 'ET', 
+          'GFPi', 'HSi', 'MMi', 'OVTi', 'NVi', 'RAi', 'PCi', 'RTi', 'MMoni', 'SSi', 'RSi', 'RS1446i', 'CPi', 'ETi')
+
+allFiles.list <- lapply(paste(vctr, ".tsv", sep = ""), read.table, header = TRUE, sep = '\t') #import files as list of dataframes
+
+aca_data <- bind_rows(allFiles.list) #concatenate all dataframes into single dataframe
+aca_data_s <- aca_data %>% select(Time_.sec., Sample, avg, sd) #keep columns that only contain data.
+aca_data_s2 <- filter(aca_data_s, Time_.sec. <= 1000) #filter on data points of 1000sec or less
+
+# generate smaller dataframes on which separate line plots can be generated
+gfp_dt <- filter(aca_data_s2, Sample == c("GFP", "GFPi"))
+hs_dt <- filter(aca_data_s2, Sample == c("HS", "HSi"))
+mm_dt <- filter(aca_data_s2, Sample == c("MM", "MMi"))
+ovt_dt <- filter(aca_data_s2, Sample == c("OVT", "OVTi"))
+nv_dt <- filter(aca_data_s2, Sample == c("NV", "NVi"))
+ra_dt <- filter(aca_data_s2, Sample == c("RA", "RAi"))
+pc_dt <- filter(aca_data_s2, Sample == c("PC", "PCi"))
+rt_dt <- filter(aca_data_s2, Sample == c("RT", "RTi"))
+mmon_dt <- filter(aca_data_s2, Sample == c("MMon", "MMoni"))
+ss_dt <- filter(aca_data_s2, Sample == c("SS", "SSi"))
+rs_dt <- filter(aca_data_s2, Sample == c("RS", "RSi"))
+rs1446_dt <- filter(aca_data_s2, Sample == c("RS1446", "RS1446i"))
+cp_dt <- filter(aca_data_s2, Sample == c("CP", "CPi"))
+et_dt <- filter(aca_data_s2, Sample == c("ET", "ETi"))
+
+# generate line plots for each group
+#   Custom formatter function for scientific notation for GFP plot
+scientific_formatter <- function(x) {
+  sprintf("%.1e", x)
+}
+
+gfp_ln <- ggplot(data = gfp_dt, aes(x = Time_.sec., y = avg, group = Sample)) +
+  geom_line(aes(color = Sample)) +
+  geom_point(aes(color = Sample)) +
+  geom_errorbar(aes(ymin = avg - sd, ymax = avg + sd), 
+                width = 1, 
+                position = position_dodge(0.05)) + 
+  scale_y_continuous(labels = scientific_formatter, 
+                     limits = c(0, 1000000)) +
+  ylab("fluorescence") +
+  xlab("Time (seconds)") +
+  theme_classic() +
+  theme_pubr() +
+  theme(axis.text.x = element_blank()
+        )
+#   the following use the aca_ln function
+hs_ln <- aca_ln(hs_dt)
+mm_ln <- aca_ln(mm_dt)
+ovt_ln <- aca_ln(ovt_dt)
+nv_ln <- aca_ln(nv_dt)
+ra_ln <- aca_ln(ra_dt)
+pc_ln <- aca_ln(pc_dt)
+rt_ln <- aca_ln(rt_dt)
+mmon_ln <- aca_ln(mmon_dt)
+ss_ln <- aca_ln(ss_dt)
+rs_ln <- aca_ln(rs_dt)
+rs1446_ln <- aca_ln(rs1446_dt)
+cp_ln <- aca_ln(cp_dt)
+et_ln <- aca_ln(et_dt)
+
+#plot line plots as multipanel figure
+ACA_sum <- ggarrange(gfp_ln + rremove("xlab") + rremove("ylab") ,
+                 hs_ln + rremove("xlab") + rremove("ylab") , 
+                 mm_ln + rremove("xlab")  + rremove("ylab"),
+                 ovt_ln + rremove("xlab")  + rremove("ylab"), 
+                 nv_ln + rremove("xlab")  + rremove("ylab"), 
+                 ra_ln + rremove("xlab")  + rremove("ylab"), 
+                 pc_ln + rremove("xlab")  + rremove("ylab"),
+                 rt_ln + rremove("xlab")  + rremove("ylab"),
+                 mmon_ln + rremove("xlab")  + rremove("ylab"),
+                 ss_ln + rremove("xlab")  + rremove("ylab"),
+                 rs_ln + rremove("xlab")  + rremove("ylab"),
+                 rs1446_ln + rremove("xlab")  + rremove("ylab"),
+                 cp_ln + rremove("xlab")  + rremove("ylab"),
+                 et_ln + rremove("xlab")  + rremove("ylab"),
+                        ncol = 3,
+                        nrow = 5,
+                        common.legend = TRUE, legend = "bottom",
+                        align = "v"
+                        )
+
+ACA_sum_an <- annotate_figure(ACA_sum,
+                              top = text_grob("Angiotensin Conversion Assay (ACE2 species)", 
+                                              face = "bold", size = 10),
+                              bottom = text_grob("Time (seconds)", 
+                                                 face = "bold", size = 10),
+                              left = text_grob("fluorescence", 
+                                               rot = 90, 
+                                               face = "bold", size = 10)
+)
+ACA_sum_an
+```
